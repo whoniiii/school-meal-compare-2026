@@ -10,14 +10,31 @@ from pathlib import Path
 def load_manifest(manifest_path: Path) -> dict[str, dict[str, str | None]]:
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     by_date: dict[str, dict[str, str | None]] = {}
+    dir_name = manifest_path.parent.name
     for item in payload.get("items", []):
         date = item.get("date")
         if date:
             by_date[str(date)] = {
                 "saved_as": item.get("saved_as"),
                 "status": item.get("status"),
+                "dir_name": dir_name,
             }
     return by_date
+
+
+def load_manifest_set(manifest_paths: list[Path]) -> dict[str, dict[str, str | None]]:
+    merged: dict[str, dict[str, str | None]] = {}
+    for path in manifest_paths:
+        current = load_manifest(path)
+        for date, item in current.items():
+            prev = merged.get(date)
+            if not prev:
+                merged[date] = item
+                continue
+            # Prefer records with actual images when overlapping dates exist.
+            if (not prev.get("saved_as")) and item.get("saved_as"):
+                merged[date] = item
+    return merged
 
 
 def daterange(start: dt.date, end: dt.date) -> list[dt.date]:
@@ -29,12 +46,7 @@ def daterange(start: dt.date, end: dt.date) -> list[dt.date]:
     return days
 
 
-def render_card(
-    school_name: str,
-    image_dir: Path,
-    item: dict[str, str | None] | None,
-    date_str: str,
-) -> str:
+def render_card(school_name: str, item: dict[str, str | None] | None, date_str: str) -> str:
     if not item or not item.get("saved_as"):
         return (
             f"<div class='photo-box missing'>"
@@ -42,7 +54,7 @@ def render_card(
             f"<div class='missing-text'>이미지 없음</div>"
             f"</div>"
         )
-    image_rel = f"{image_dir.name}/{item['saved_as']}"
+    image_rel = f"{item['dir_name']}/{item['saved_as']}"
     return (
         f"<a class='photo-box' href='{image_rel}' target='_blank' rel='noopener'>"
         f"<div class='school'>{school_name}</div>"
@@ -52,17 +64,14 @@ def render_card(
 
 
 def build_html(
-    soongshin_manifest: Path,
-    muhag_manifest: Path,
+    soongshin_manifests: list[Path],
+    muhag_manifests: list[Path],
     out_html: Path,
     start_date: dt.date,
     end_date: dt.date,
 ) -> None:
-    soongshin_map = load_manifest(soongshin_manifest)
-    muhag_map = load_manifest(muhag_manifest)
-
-    soongshin_dir = soongshin_manifest.parent
-    muhag_dir = muhag_manifest.parent
+    soongshin_map = load_manifest_set(soongshin_manifests)
+    muhag_map = load_manifest_set(muhag_manifests)
 
     rows: list[str] = []
     for d in reversed(daterange(start_date, end_date)):
@@ -79,10 +88,10 @@ def build_html(
             continue
 
         soongshin_card = render_card(
-            "서울숭신초등학교", soongshin_dir, soongshin_item, date_str
+            "서울숭신초등학교", soongshin_item, date_str
         )
         muhag_card = render_card(
-            "서울무학초등학교", muhag_dir, muhag_item, date_str
+            "서울무학초등학교", muhag_item, date_str
         )
         rows.append(
             f"<section class='day-row{weekend_class}'>"
@@ -191,6 +200,26 @@ def build_html(
     @media (max-width: 860px) {{
       .compare-grid {{ grid-template-columns: 1fr; }}
     }}
+    @page {{
+      size: A4;
+      margin: 6mm;
+    }}
+    @media print {{
+      body {{
+        background: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }}
+      .wrap {{
+        max-width: none;
+        margin: 0;
+        padding: 0;
+      }}
+      .day-row {{
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }}
+    }}
   </style>
 </head>
 <body>
@@ -208,27 +237,37 @@ def build_html(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build day-by-day comparison HTML.")
     parser.add_argument(
-        "--soongshin-manifest",
-        default="soongshin_meal_images_2026_03_04/manifest.json",
+        "--soongshin-manifests",
+        default="soongshin_meal_images_2025_06_12/manifest.json,soongshin_meal_images_2026_03_04/manifest.json",
     )
     parser.add_argument(
-        "--muhag-manifest",
-        default="muhag_meal_images_2026_03_04/manifest.json",
+        "--muhag-manifests",
+        default="muhag_meal_images_2025_06_12/manifest.json,muhag_meal_images_2026_03_04/manifest.json",
     )
     parser.add_argument(
         "--out-html",
         default="meal_compare_soongshin_vs_muhag_2026_03_04.html",
     )
-    parser.add_argument("--start-date", default="2026-03-01")
+    parser.add_argument("--start-date", default="2025-06-01")
     parser.add_argument("--end-date", default="2026-04-30")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    soongshin_manifest_paths = [
+        Path(p.strip()).resolve()
+        for p in args.soongshin_manifests.split(",")
+        if p.strip()
+    ]
+    muhag_manifest_paths = [
+        Path(p.strip()).resolve()
+        for p in args.muhag_manifests.split(",")
+        if p.strip()
+    ]
     build_html(
-        soongshin_manifest=Path(args.soongshin_manifest).resolve(),
-        muhag_manifest=Path(args.muhag_manifest).resolve(),
+        soongshin_manifests=soongshin_manifest_paths,
+        muhag_manifests=muhag_manifest_paths,
         out_html=Path(args.out_html).resolve(),
         start_date=dt.date.fromisoformat(args.start_date),
         end_date=dt.date.fromisoformat(args.end_date),
