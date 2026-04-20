@@ -65,7 +65,7 @@ def build_html(
     muhag_dir = muhag_manifest.parent
 
     rows: list[str] = []
-    for d in daterange(start_date, end_date):
+    for d in reversed(daterange(start_date, end_date)):
         date_str = d.isoformat()
         weekday = ["월", "화", "수", "목", "금", "토", "일"][d.weekday()]
         weekend_class = " weekend" if d.weekday() >= 5 else ""
