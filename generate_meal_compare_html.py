@@ -161,9 +161,7 @@ def build_html(
     }}
     .photo-box img {{
       width: 100%;
-      height: 320px;
-      object-fit: contain;
-      object-position: center;
+      height: auto;
       display: block;
       background: #f0f3f8;
     }}
@@ -192,7 +190,6 @@ def build_html(
     }}
     @media (max-width: 860px) {{
       .compare-grid {{ grid-template-columns: 1fr; }}
-      .photo-box img {{ height: 280px; }}
     }}
   </style>
 </head>
